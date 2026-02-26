@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from sse_starlette.sse import EventSourceResponse
 
 from backend.api.schemas import (
+    GenerationSummaryOut,
     ResourceTypeOut,
     StrandOut,
     TeachingFocusOut,
@@ -77,12 +78,20 @@ async def _run_generation(params: dict) -> AsyncIterator[str]:
         overall_start = time.time()
         step_start = time.time()
         content_chunks = []
+        seen_step_data = set()  # Track which step data we've emitted
+        # Collect debug data to persist in generation_logs
+        debug_cag_matches = None
+        debug_routing = None
+        debug_rag = None
+        debug_template = None
+        debug_resolved_prompt = None
 
         async for event in response_iter:
-            event_type = getattr(event, "event", None)
+            event_type = str(getattr(event, "event", "") or "")
+            content = getattr(event, "content", None)
 
-            # Handle step lifecycle events
-            if event_type and "step_started" in str(event_type):
+            # Handle step lifecycle events from the workflow
+            if "step_started" in event_type or "step_start" in event_type:
                 step_start = time.time()
                 step_name = step_names[min(current_step_index, len(step_names) - 1)]
                 yield _sse({
@@ -91,84 +100,126 @@ async def _run_generation(params: dict) -> AsyncIterator[str]:
                     "index": current_step_index + 1,
                 })
 
-            elif event_type and "step_completed" in str(event_type):
+            elif "step_completed" in event_type or "step_complete" in event_type:
                 duration_ms = int((time.time() - step_start) * 1000)
                 step_name = step_names[min(current_step_index, len(step_names) - 1)]
                 step_timings[step_name] = duration_ms
-
-                # Access shared state directly (mutated by steps via run_context)
-                summary = _get_step_summary(step_name, shared_state)
 
                 yield _sse({
                     "type": "step_completed",
                     "step": step_name,
                     "index": current_step_index + 1,
                     "duration_ms": duration_ms,
-                    "summary": summary,
                 })
-
-                # Emit detailed events for specific steps
-                if step_name == "curriculum_matcher" and "cag_matches" in shared_state:
-                    yield _sse({
-                        "type": "cag_matches",
-                        "matches": shared_state["cag_matches"][:5],
-                    })
-
-                if step_name == "teaching_focus_router" and "routing_decision" in shared_state:
-                    rd = shared_state["routing_decision"]
-                    yield _sse({
-                        "type": "routing_decision",
-                        "teaching_path": rd.get("teaching_path", ""),
-                        "year_band": rd.get("year_band", ""),
-                    })
-
-                if step_name == "pedagogy_retriever" and "rag_results" in shared_state:
-                    yield _sse({
-                        "type": "rag_results",
-                        "num_chunks": len(shared_state.get("rag_results", [])),
-                        "results": shared_state.get("rag_results", []),
-                    })
-
-                if step_name == "template_resolver" and "selected_template" in shared_state:
-                    yield _sse({
-                        "type": "template_selected",
-                        "name": shared_state.get("selected_template", ""),
-                        "variables_resolved": len(shared_state.get("template_variables", {})),
-                    })
 
                 current_step_index += 1
-
-            # Handle router events
-            elif event_type and "router" in str(event_type).lower():
                 step_start = time.time()
-                yield _sse({
-                    "type": "step_started",
-                    "step": "teaching_focus_router",
-                    "index": 3,
-                })
 
-            # Handle streaming content from the resource generator
-            elif hasattr(event, "content") and event.content:
-                content_chunks.append(event.content)
-                yield _sse({
-                    "type": "content_chunk",
-                    "content": event.content,
-                })
+            elif "router" in event_type.lower():
+                step_start = time.time()
+
+            elif content:
+                content_str = str(content)
+
+                # Detect step-output JSON and emit debug events instead of content
+                if content_str.startswith("{") and len(content_str) > 50:
+                    try:
+                        data = json.loads(content_str) if isinstance(content, str) else content
+                        if isinstance(data, dict):
+                            # Step 1 output: parsed_input
+                            if "keywords" in data and "intent" in data and "parsed_input" not in seen_step_data:
+                                seen_step_data.add("parsed_input")
+                                step_timings["input_analyzer"] = int((time.time() - step_start) * 1000)
+                                yield _sse({"type": "step_started", "step": "input_analyzer", "index": 1})
+                                yield _sse({"type": "step_completed", "step": "input_analyzer", "index": 1,
+                                            "duration_ms": step_timings["input_analyzer"],
+                                            "summary": {"topic": data.get("topic", ""), "intent": data.get("intent", "")}})
+                                step_start = time.time()
+
+                            # Step 2 output: CAG matches
+                            elif "matches" in data and "cag" not in seen_step_data:
+                                seen_step_data.add("cag")
+                                debug_cag_matches = data["matches"][:5]
+                                step_timings["curriculum_matcher"] = int((time.time() - step_start) * 1000)
+                                yield _sse({"type": "step_started", "step": "curriculum_matcher", "index": 2})
+                                yield _sse({"type": "step_completed", "step": "curriculum_matcher", "index": 2,
+                                            "duration_ms": step_timings["curriculum_matcher"],
+                                            "summary": {"num_matches": len(data["matches"])}})
+                                yield _sse({"type": "cag_matches", "matches": debug_cag_matches})
+                                step_start = time.time()
+
+                            # Step 3 output: routing decision
+                            elif "teaching_path" in data and "routing" not in seen_step_data:
+                                seen_step_data.add("routing")
+                                debug_routing = {"teaching_path": data.get("teaching_path", ""), "year_band": data.get("year_band", "")}
+                                step_timings["teaching_focus_router"] = int((time.time() - step_start) * 1000)
+                                yield _sse({"type": "step_started", "step": "teaching_focus_router", "index": 3})
+                                yield _sse({"type": "step_completed", "step": "teaching_focus_router", "index": 3,
+                                            "duration_ms": step_timings["teaching_focus_router"],
+                                            "summary": {"path": debug_routing["teaching_path"], "band": debug_routing["year_band"]}})
+                                yield _sse({"type": "routing_decision", **debug_routing})
+                                step_start = time.time()
+
+                            # Step 4 output: RAG results
+                            elif "num_chunks" in data and "rag" not in seen_step_data:
+                                seen_step_data.add("rag")
+                                debug_rag = {"num_chunks": data.get("num_chunks", 0), "results": data.get("results", [])}
+                                step_timings["pedagogy_retriever"] = int((time.time() - step_start) * 1000)
+                                yield _sse({"type": "step_started", "step": "pedagogy_retriever", "index": 4})
+                                yield _sse({"type": "step_completed", "step": "pedagogy_retriever", "index": 4,
+                                            "duration_ms": step_timings["pedagogy_retriever"],
+                                            "summary": {"num_chunks": debug_rag["num_chunks"]}})
+                                yield _sse({"type": "rag_results", **debug_rag})
+                                step_start = time.time()
+
+                            # Step 5 output: template selected
+                            elif "variables_resolved" in data and "template" not in seen_step_data:
+                                seen_step_data.add("template")
+                                debug_template = data.get("name", "")
+                                debug_resolved_prompt = data.get("resolved_prompt", "")
+                                step_timings["template_resolver"] = int((time.time() - step_start) * 1000)
+                                yield _sse({"type": "step_started", "step": "template_resolver", "index": 5})
+                                yield _sse({"type": "step_completed", "step": "template_resolver", "index": 5,
+                                            "duration_ms": step_timings["template_resolver"],
+                                            "summary": {"template": debug_template}})
+                                yield _sse({"type": "template_selected",
+                                            "name": debug_template,
+                                            "variables_resolved": data.get("variables_resolved", 0)})
+                                # Next content will be from the generator
+                                yield _sse({"type": "step_started", "step": "resource_generator", "index": 6})
+                                step_start = time.time()
+
+                            continue  # Don't emit step-output JSON as content
+                    except (json.JSONDecodeError, TypeError):
+                        pass  # Not JSON, treat as content
+
+                # Stream actual content tokens from the generator.
+                # Skip large chunks (>200 chars) which are duplicate final StepOutputs.
+                if len(content_str) <= 200:
+                    content_chunks.append(content_str)
+                    yield _sse({
+                        "type": "content_chunk",
+                        "content": content_str,
+                    })
 
         total_duration_ms = int((time.time() - overall_start) * 1000)
 
-        # Update generation log from shared state
+        # Capture resource_generator timing (from last step_start to now)
+        if "resource_generator" not in step_timings and content_chunks:
+            step_timings["resource_generator"] = int((time.time() - step_start) * 1000)
+
+        # Update generation log with collected data + debug trace
         db = SessionLocal()
         try:
             log = db.query(GenerationLog).filter_by(id=generation_id).first()
             if log:
-                log.matched_descriptors = shared_state.get("cag_matches")
-                log.routing_decision = shared_state.get("routing_decision")
-                log.rag_results = shared_state.get("rag_results")
-                log.selected_template = shared_state.get("selected_template")
-                log.resolved_prompt = shared_state.get("resolved_prompt")
-                log.generated_resource = shared_state.get("generated_resource", "".join(content_chunks))
+                log.generated_resource = "".join(content_chunks)
                 log.step_timings = step_timings
+                log.matched_descriptors = debug_cag_matches
+                log.routing_decision = debug_routing
+                log.rag_results = debug_rag
+                log.selected_template = debug_template
+                log.resolved_prompt = debug_resolved_prompt
                 log.status = "completed"
                 db.commit()
         finally:
@@ -271,6 +322,63 @@ def get_debug(generation_id: str, db: Session = Depends(get_db)):
         "step_timings": log.step_timings,
         "created_at": str(log.created_at) if log.created_at else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Generation history endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.delete("/generations/{generation_id}")
+def delete_generation(generation_id: str, db: Session = Depends(get_db)):
+    """Delete a single generation log."""
+    log = db.query(GenerationLog).filter_by(id=generation_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    db.delete(log)
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/generations")
+def delete_all_generations(db: Session = Depends(get_db)):
+    """Delete all generation logs."""
+    count = db.query(GenerationLog).delete()
+    db.commit()
+    return {"ok": True, "deleted": count}
+
+
+@router.get("/generations", response_model=list[GenerationSummaryOut])
+def list_generations(
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+):
+    """Return recent generations for the history view."""
+    logs = (
+        db.query(GenerationLog)
+        .order_by(GenerationLog.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    results = []
+    for log in logs:
+        payload = log.request_payload or {}
+        results.append(
+            GenerationSummaryOut(
+                id=str(log.id),
+                status=log.status or "unknown",
+                topic=payload.get("topic"),
+                year_level=payload.get("year_level"),
+                strand=payload.get("strand"),
+                teaching_focus=payload.get("teaching_focus"),
+                resource_type=payload.get("resource_type"),
+                step_timings=log.step_timings,
+                created_at=log.created_at,
+            )
+        )
+    return results
 
 
 # ---------------------------------------------------------------------------

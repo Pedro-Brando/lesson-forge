@@ -23,8 +23,8 @@ def pedagogy_retriever_step(step_input: StepInput, run_context: RunContext) -> S
         f"{routing['teaching_path']} {parsed.get('year_level', '')}"
     )
 
-    kb = get_knowledge_base()
     try:
+        kb = get_knowledge_base()
         results = kb.search(query, max_results=5)
     except Exception:
         results = []

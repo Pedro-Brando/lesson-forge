@@ -11,7 +11,6 @@
 
 from typing import List
 
-from agno.run import RunContext
 from agno.workflow.router import Router
 from agno.workflow.step import Step, StepInput
 from agno.workflow.workflow import Workflow
@@ -55,10 +54,9 @@ planning_step = Step(
 )
 
 
-def teaching_focus_selector(step_input: StepInput, run_context: RunContext) -> List[Step]:
+def teaching_focus_selector(step_input: StepInput, session_state: dict) -> List[Step]:
     """Route to the appropriate teaching focus enrichment step."""
-    state = run_context.session_state
-    focus = state["params"]["teaching_focus"]
+    focus = session_state["params"]["teaching_focus"]
 
     route_map = {
         "explicit_instruction": explicit_instruction_step,

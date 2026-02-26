@@ -82,7 +82,44 @@ def seed_elaborations(kb: Knowledge):
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def _test_openai_access() -> bool:
+    """Quick check that we can call the OpenAI embeddings API."""
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        client.embeddings.create(input="test", model="text-embedding-3-small")
+        return True
+    except Exception as e:
+        print(f"OpenAI API check failed: {e}", file=sys.stderr)
+        return False
+
+
+def _knowledge_already_seeded() -> bool:
+    """Check if the knowledge base already has data."""
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(settings.DATABASE_URL)
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT COUNT(*) FROM ai.pedagogy_vectors"))
+            count = result.scalar()
+            return count is not None and count > 0
+    except Exception:
+        return False
+
+
 def main():
+    if not settings.OPENAI_API_KEY:
+        print("WARNING: OPENAI_API_KEY not set. Skipping knowledge base seeding.", file=sys.stderr)
+        return
+
+    if _knowledge_already_seeded():
+        print("Knowledge base already seeded. Skipping.")
+        return
+
+    if not _test_openai_access():
+        print("WARNING: OpenAI API unavailable. Skipping knowledge base seeding.", file=sys.stderr)
+        return
+
     print("Seeding knowledge base...")
     kb = get_knowledge_base()
 

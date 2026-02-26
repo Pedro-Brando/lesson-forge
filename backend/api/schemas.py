@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -66,5 +67,19 @@ class ResourceTypeOut(BaseModel):
     slug: str
     description: Optional[str]
     teaching_focus_slug: str
+
+    model_config = {"from_attributes": True}
+
+
+class GenerationSummaryOut(BaseModel):
+    id: str
+    status: str
+    topic: Optional[str] = None
+    year_level: Optional[str] = None
+    strand: Optional[str] = None
+    teaching_focus: Optional[str] = None
+    resource_type: Optional[str] = None
+    step_timings: Optional[dict] = None
+    created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
