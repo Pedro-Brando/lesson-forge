@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LessonForge - AI Lesson Resource Generator</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>LessonForge</h1>
+    <p class="subtitle">AI Lesson Resource Generator for Australian Mathematics</p>
+  </header>
+
+  <main>
+    <div class="panel-container">
+      <!-- Left Panel: Form -->
+      <aside class="form-panel">
+        <form id="generate-form">
+          <div class="form-group">
+            <label for="topic">What do you want to teach?</label>
+            <textarea id="topic" name="topic" rows="3" required
+              placeholder="e.g., Teaching fractions to Year 5 students using pizza sharing"></textarea>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="year_level">Year Level</label>
+              <select id="year_level" name="year_level">
+                <option value="Year 5" selected>Loading...</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="strand">Strand</label>
+              <select id="strand" name="strand">
+                <option value="Number" selected>Loading...</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="teaching_focus">Teaching Focus</label>
+            <select id="teaching_focus" name="teaching_focus">
+              <option value="explicit_instruction" selected>Loading...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="resource_type">Resource Type</label>
+            <select id="resource_type" name="resource_type">
+              <option value="worked_example_study" selected>Loading...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="additional_context">Additional Context (optional)</label>
+            <textarea id="additional_context" name="additional_context" rows="2"
+              placeholder="e.g., Students struggle with equivalent fractions, mixed ability class"></textarea>
+          </div>
+
+          <button type="submit" id="generate-btn">Generate Resource</button>
+        </form>
+      </aside>
+
+      <!-- Right Panel: Output -->
+      <section class="output-panel">
+        <!-- Step Progress -->
+        <div class="step-progress" id="step-progress">
+          <div class="step" data-step="1"><span class="step-num">1</span><span class="step-label">Parse Input</span></div>
+          <div class="step" data-step="2"><span class="step-num">2</span><span class="step-label">CAG Match</span></div>
+          <div class="step" data-step="3"><span class="step-num">3</span><span class="step-label">Route</span></div>
+          <div class="step" data-step="4"><span class="step-num">4</span><span class="step-label">RAG Retrieve</span></div>
+          <div class="step" data-step="5"><span class="step-num">5</span><span class="step-label">Template</span></div>
+          <div class="step" data-step="6"><span class="step-num">6</span><span class="step-label">Generate</span></div>
+        </div>
+
+        <!-- Resource Output -->
+        <div class="resource-output" id="resource-output">
+          <div class="placeholder">
+            <p>Your generated resource will appear here.</p>
+            <p class="hint">Fill in the form and click <strong>Generate Resource</strong> to begin.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Debug Panel -->
+    <div class="debug-panel" id="debug-panel">
+      <button class="debug-toggle" id="debug-toggle">Debug View</button>
+      <div class="debug-content" id="debug-content" style="display:none;">
+        <div class="debug-tabs">
+          <button class="debug-tab active" data-tab="events">Events</button>
+          <button class="debug-tab" data-tab="cag">CAG Matches</button>
+          <button class="debug-tab" data-tab="rag">RAG Results</button>
+          <button class="debug-tab" data-tab="template">Template</button>
+          <button class="debug-tab" data-tab="timings">Timings</button>
+        </div>
+        <div class="debug-tab-content" id="debug-events"><pre id="events-log"></pre></div>
+        <div class="debug-tab-content" id="debug-cag" style="display:none;"><div id="cag-table"></div></div>
+        <div class="debug-tab-content" id="debug-rag" style="display:none;"><div id="rag-table"></div></div>
+        <div class="debug-tab-content" id="debug-template" style="display:none;"><pre id="template-info"></pre></div>
+        <div class="debug-tab-content" id="debug-timings" style="display:none;"><div id="timings-chart"></div></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

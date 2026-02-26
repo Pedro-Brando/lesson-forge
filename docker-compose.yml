@@ -1,0 +1,41 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: lesson_forge
+      POSTGRES_PASSWORD: lesson_forge_pw
+      POSTGRES_DB: lesson_forge
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lesson_forge"]
+      interval: 5s
+      retries: 10
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://lesson_forge:lesson_forge_pw@db:5432/lesson_forge
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL_FAST: ${OPENAI_MODEL_FAST:-gpt-4o-mini}
+      OPENAI_MODEL_GENERATION: ${OPENAI_MODEL_GENERATION:-gpt-4o}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["bash", "scripts/entrypoint.sh"]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
