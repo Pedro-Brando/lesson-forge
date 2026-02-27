@@ -5,6 +5,7 @@ import json
 from agno.run import RunContext
 from agno.workflow.step import StepInput, StepOutput
 
+from backend.config import settings
 from backend.workflow.agents import get_input_analyzer
 
 
@@ -35,6 +36,16 @@ Return ONLY valid JSON."""
     response = agent.run(prompt)
     content = response.content
 
+    # Extract token usage metrics
+    token_usage = None
+    if response.metrics:
+        token_usage = {
+            "input_tokens": response.metrics.input_tokens or 0,
+            "output_tokens": response.metrics.output_tokens or 0,
+            "total_tokens": response.metrics.total_tokens or 0,
+            "model": settings.OPENAI_MODEL_FAST,
+        }
+
     # Parse the JSON response
     try:
         text = content.strip()
@@ -54,4 +65,7 @@ Return ONLY valid JSON."""
         }
 
     state["parsed_input"] = parsed
-    return StepOutput(content=json.dumps(parsed))
+    output = dict(parsed)
+    if token_usage:
+        output["_token_usage"] = token_usage
+    return StepOutput(content=json.dumps(output))

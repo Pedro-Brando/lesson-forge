@@ -55,6 +55,7 @@ def template_resolver_step(step_input: StepInput, run_context: RunContext) -> St
                 "name": template.name,
                 "priority": template.priority,
                 "variables_resolved": len(variables),
+                "resolved_prompt": resolved_prompt[:5000],
             })
         )
     finally:

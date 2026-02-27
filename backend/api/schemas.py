@@ -80,6 +80,7 @@ class GenerationSummaryOut(BaseModel):
     teaching_focus: Optional[str] = None
     resource_type: Optional[str] = None
     step_timings: Optional[dict] = None
+    token_usage: Optional[dict] = None
     created_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

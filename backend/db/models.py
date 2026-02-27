@@ -119,5 +119,6 @@ class GenerationLog(Base):
     resolved_prompt = Column(Text)
     generated_resource = Column(Text)
     step_timings = Column(JSONB)
+    token_usage = Column(JSONB)
     status = Column(String(20), default="pending")
     created_at = Column(DateTime, server_default=func.now())

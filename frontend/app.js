@@ -51,6 +51,8 @@ function freshGen() {
     content: '',
     totalMs: null,
     error: null,
+    tokenUsage: null,
+    resolvedPrompt: null,
   };
 }
 
@@ -73,9 +75,12 @@ const dom = {
   stepRail:       $('#step-rail'),
   outputEmpty:    $('#output-empty'),
   markdownBody:   $('#markdown-body'),
-  inspectorSteps: $('#inspector-steps'),
-  inspectorTime:  $('#inspector-timings'),
-  backdrop:       $('#modal-backdrop'),
+  inspectorSteps:  $('#inspector-steps'),
+  inspectorTime:   $('#inspector-timings'),
+  inspectorTokens: $('#inspector-tokens'),
+  inspectorPrompt: $('#inspector-prompt'),
+  exportBtn:       $('#export-btn'),
+  backdrop:        $('#modal-backdrop'),
   clearAllBtn:    $('#clear-all-btn'),
   confirmOverlay: $('#confirm-overlay'),
   confirmCancel:  $('#confirm-cancel'),
@@ -228,6 +233,19 @@ async function viewPastGeneration(generationId) {
     if (data.selected_template) {
       renderTemplateData({ name: data.selected_template, variables_resolved: 0 });
     }
+    if (data.resolved_prompt) {
+      S.gen.resolvedPrompt = data.resolved_prompt;
+      renderPromptViewer(data.resolved_prompt);
+    }
+    if (data.token_usage) {
+      S.gen.tokenUsage = data.token_usage;
+      renderTokenUsage(data.token_usage);
+    }
+
+    // Show export button for completed past generations
+    if (S.gen.content) {
+      dom.exportBtn.classList.remove('hidden');
+    }
 
     renderTimings();
   } catch (err) {
@@ -287,6 +305,11 @@ function showGenerate() {
   dom.markdownBody.classList.remove('visible', 'streaming');
   dom.markdownBody.innerHTML = '';
   dom.inspectorTime.innerHTML = '';
+  dom.inspectorTokens.innerHTML = '';
+  dom.inspectorTokens.classList.remove('open');
+  dom.inspectorPrompt.innerHTML = '';
+  dom.inspectorPrompt.classList.remove('open');
+  dom.exportBtn.classList.add('hidden');
 }
 
 // ============================================================
@@ -597,6 +620,16 @@ function handleEvent(ev) {
       renderTemplateData(ev);
       break;
 
+    case 'resolved_prompt':
+      S.gen.resolvedPrompt = ev.prompt || '';
+      renderPromptViewer(S.gen.resolvedPrompt);
+      break;
+
+    case 'token_usage':
+      S.gen.tokenUsage = ev;
+      renderTokenUsage(ev);
+      break;
+
     case 'content_chunk':
       S.gen.content += ev.content;
       dom.outputEmpty.classList.add('hidden');
@@ -610,6 +643,7 @@ function handleEvent(ev) {
       S.gen.totalMs = ev.total_duration_ms;
       S.gen.status = 'completed';
       dom.markdownBody.classList.remove('streaming');
+      dom.exportBtn.classList.remove('hidden');
       renderTimings();
       break;
 
@@ -706,6 +740,51 @@ function renderTemplateData(ev) {
   `);
 }
 
+function renderTokenUsage(data) {
+  const steps = data.steps || {};
+  const stepEntries = Object.entries(steps);
+  if (!stepEntries.length) return;
+
+  const maxTokens = Math.max(...stepEntries.map(([, s]) => (s.input_tokens || 0) + (s.output_tokens || 0)), 1);
+
+  let stepsHtml = '';
+  for (const [key, s] of stepEntries) {
+    const label = formatSlug(key);
+    const inTok = s.input_tokens || 0;
+    const outTok = s.output_tokens || 0;
+    const total = inTok + outTok;
+    const inPct = total > 0 ? (inTok / maxTokens) * 100 : 0;
+    const outPct = total > 0 ? (outTok / maxTokens) * 100 : 0;
+    stepsHtml += `<div class="token-step">
+      <div class="token-step-name">${esc(label)} <span class="token-step-model">${esc(s.model || '')}</span></div>
+      <div class="token-bar"><div class="token-bar-in" style="width:${inPct}%"></div><div class="token-bar-out" style="width:${outPct}%"></div></div>
+      <div class="token-counts"><span class="token-count-in">${inTok.toLocaleString()} in</span><span class="token-count-out">${outTok.toLocaleString()} out</span></div>
+    </div>`;
+  }
+
+  dom.inspectorTokens.innerHTML = `
+    <div class="tokens-header">
+      <span class="tokens-header-label">Token Usage</span>
+      <span class="tokens-total-badge">${(data.total || 0).toLocaleString()} tokens</span>
+      <span class="tokens-header-icon">&#8250;</span>
+    </div>
+    <div class="tokens-body"><div class="tokens-content">${stepsHtml}</div></div>
+  `;
+  dom.inspectorTokens.classList.add('open');
+}
+
+function renderPromptViewer(promptText) {
+  if (!promptText) return;
+  dom.inspectorPrompt.innerHTML = `
+    <div class="prompt-header">
+      <span class="prompt-header-label">Resolved Prompt</span>
+      <button class="prompt-copy" id="prompt-copy-btn">Copy</button>
+      <span class="prompt-header-icon">&#8250;</span>
+    </div>
+    <div class="prompt-body"><pre class="prompt-text">${esc(promptText)}</pre></div>
+  `;
+}
+
 function esc(s) {
   const d = document.createElement('div');
   d.textContent = s;
@@ -738,6 +817,9 @@ function init() {
 
   // Back button
   $('#back-btn').addEventListener('click', showCompose);
+
+  // Export / Print
+  dom.exportBtn.addEventListener('click', () => window.print());
 
   // Notes chip toggle
   dom.chipNotes.addEventListener('click', () => {
@@ -813,6 +895,30 @@ function init() {
     if (stepHead) {
       const istep = stepHead.closest('.istep');
       if (istep) istep.classList.toggle('open');
+    }
+
+    // Prompt viewer accordion toggle
+    const promptHeader = e.target.closest('.prompt-header');
+    if (promptHeader && !e.target.closest('.prompt-copy')) {
+      dom.inspectorPrompt.classList.toggle('open');
+      return;
+    }
+
+    // Prompt copy button
+    const copyBtn = e.target.closest('.prompt-copy');
+    if (copyBtn && S.gen && S.gen.resolvedPrompt) {
+      navigator.clipboard.writeText(S.gen.resolvedPrompt).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+      });
+      return;
+    }
+
+    // Token usage accordion toggle
+    const tokensHeader = e.target.closest('.tokens-header');
+    if (tokensHeader) {
+      dom.inspectorTokens.classList.toggle('open');
+      return;
     }
   });
 

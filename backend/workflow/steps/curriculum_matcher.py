@@ -5,6 +5,7 @@ import json
 from agno.run import RunContext
 from agno.workflow.step import StepInput, StepOutput
 
+from backend.config import settings
 from backend.db.session import SessionLocal
 from backend.services.cag_service import build_cag_prompt, load_all_descriptors, parse_cag_response
 from backend.workflow.agents import get_cag_matcher
@@ -29,6 +30,16 @@ def curriculum_matcher_step(step_input: StepInput, run_context: RunContext) -> S
         response = agent.run(prompt)
         matches = parse_cag_response(response.content)
 
+        # Extract token usage metrics
+        token_usage = None
+        if response.metrics:
+            token_usage = {
+                "input_tokens": response.metrics.input_tokens or 0,
+                "output_tokens": response.metrics.output_tokens or 0,
+                "total_tokens": response.metrics.total_tokens or 0,
+                "model": settings.OPENAI_MODEL_FAST,
+            }
+
         # Ensure we have at least one match
         if not matches:
             matches = [
@@ -44,6 +55,9 @@ def curriculum_matcher_step(step_input: StepInput, run_context: RunContext) -> S
 
         state["cag_matches"] = matches
         state["primary_descriptor_code"] = matches[0]["code"]
-        return StepOutput(content=json.dumps({"matches": matches}))
+        output = {"matches": matches}
+        if token_usage:
+            output["_token_usage"] = token_usage
+        return StepOutput(content=json.dumps(output))
     finally:
         db.close()
